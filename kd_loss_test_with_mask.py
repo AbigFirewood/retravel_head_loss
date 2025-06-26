@@ -61,6 +61,7 @@ from collections import defaultdict
 import time
 import torch
 
+file_dir = "huwenp/emb/revis_emb/Retrieval_Head/resoltdir/test_sort.jsonl"
 def reset_rope(model, model_max_train_len, scaling_factor):
     for l in model.model.layers:
         l.self_attn.rotary_emb.scaling_factor = scaling_factor
@@ -301,9 +302,9 @@ class LLMNeedleHaystackTester:
 
     def compute_cross_entropy_loss(self, logits, target, log=None):
         self.padding_id = -100
-        pad_mask = target.ne(self.padding_id)
+        pad_mask = target.ne(self.padding_id) # 没pad的地方为1
         target = target.unsqueeze(-1)
-        target = torch.where(
+        target = torch.where(        # 处理promtoken 用-100替代
             target.eq(-100), 
             torch.zeros_like(target),
             target
@@ -311,7 +312,7 @@ class LLMNeedleHaystackTester:
         logits = logits.masked_fill_(logits.isnan() | logits.isinf(), 0.0)
         lprobs = torch.log_softmax(logits, -1, dtype=torch.float32)
         nll_loss = -lprobs.gather(-1, target).squeeze(-1)
-        loss_token = (nll_loss * pad_mask)
+        loss_token = (nll_loss * pad_mask) # 处理了pad token
         nll_loss = (nll_loss * pad_mask).sum(dim=1)
         # if self.label_smoothing > 0:
         #     eps_i = self.label_smoothing / (lprobs.shape[-1] - 1)
@@ -454,33 +455,37 @@ class LLMNeedleHaystackTester:
                 # 取batch和停止
                 for batch in global_batch: # 前线传播
                     with torch.no_grad():
-                        input_data=batch["input_batch"] # 输入数据
                         input_ids = batch["input_batch"]["input_ids"]
                         # print(input_ids[:,-1].shape)
                         output_data = batch["output_batch"]
+
+                        # 获取数据集需保存内容
                         prompt = batch["input_batch"]["prompt"] # 答案
                         output = batch["input_batch"]["output"] # 目标
-                        souse_len = batch["input_batch"]["input_length"] # 输入长度
+                        text = batch["input_batch"]["text"] # 文本内容
+                        # souse_len = batch["input_batch"]["input_length"] # 输入长度
+
                         loss_vanilla,token_loss_vanilla = self.loss(input_ids,output_data=output_data, block_list=None)
                         loss_block,token_loss_block = self.loss(input_ids,output_data=output_data, block_list=block_list)
+                        
                         # loss差值 转化为列表 与原有列表组合
                         loss_dif_list = ((loss_block- loss_vanilla)/loss_vanilla)
                         loss_dif_list = torch.nan_to_num(loss_dif_list, nan=0.0).tolist()
+
                         token_loss_dif = ((token_loss_block - token_loss_vanilla)/token_loss_vanilla)
                         token_loss_dif = torch.nan_to_num(token_loss_dif, nan=0.0).tolist()
                         # 组合为元祖
-                        combined_list = list(zip(prompt, loss_dif_list,token_loss_dif,input_ids.tolist(),output,souse_len))
+                        combined_list = list(zip(prompt,output,text, loss_dif_list,token_loss_dif,output["loss_mask"]))
                         # # 从大到小排序
                         # sorted_list = sorted(combined_list, key=lambda x: x[1], reverse=True)
                         all_output.extend(combined_list)
+
         # 完成循环 标注所有数据 排序
         sorted_list = sorted(all_output, key=lambda x: x[1], reverse=True)
         # 存储到jsonl中
         json_ready_data = [
-                {"data": item[0], "loss_diff": item[1],"token_loss_diff": item[2], "input_ids": item[3], "output": item[4],"souse_len": item[5]}
-                for item in sorted_list
+                {"data": item[0],"output": item[1],"text": item[2], "loss_diff": item[3],"token_loss_diff": item[4], "loss_mask": item[5]} for item in sorted_list
             ]
-        file_dir = "huwenp/emb/revis_emb/Retrieval_Head/resoltdir/test_sort.jsonl"
         os.makedirs(os.path.dirname(file_dir), exist_ok=True)
         with open(file_dir, "w", encoding="utf-8") as f:
             for entry in json_ready_data:
