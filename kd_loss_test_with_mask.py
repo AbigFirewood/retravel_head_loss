@@ -218,7 +218,7 @@ class LLMNeedleHaystackTester:
         if self.mask_topk!=0:
             if model_name=='Mistral-7B-Instruct-v0.2':
                 model_name = "Mistral-7B-v0.2-hf"
-            with open(f"head_score/{model_name}.json", "r") as file:
+            with open(f"/home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/head_score/{model_name}.json", "r") as file:
                 stable_block_list =  json.loads(file.readline())
             stable_block_list = [(l[0], np.mean(l[1])) for l in stable_block_list.items()]
             stable_block_list = sorted(stable_block_list, key=lambda x: x[1], reverse=True) 
@@ -480,7 +480,7 @@ class LLMNeedleHaystackTester:
                 {"data": item[0], "loss_diff": item[1],"token_loss_diff": item[2], "input_ids": item[3], "output": item[4],"souse_len": item[5]}
                 for item in sorted_list
             ]
-        file_dir = "huwenp/emb/revis_emb/Retrieval_Head/resoltdir/test.jsonl"
+        file_dir = "huwenp/emb/revis_emb/Retrieval_Head/resoltdir/test_sort.jsonl"
         os.makedirs(os.path.dirname(file_dir), exist_ok=True)
         with open(file_dir, "w", encoding="utf-8") as f:
             for entry in json_ready_data:
@@ -641,7 +641,7 @@ if __name__ == "__main__":
     # Tons of defaults set, check out the LLMNeedleHaystackTester's init for more info
     parser = argparse.ArgumentParser()
     # parser.add_argument('-s', '--s_len', metavar='N', type=int, help='a number')
-    # parser.add_argument('-e', '--e_len', metavar='N', type=int, help='a number')
+    # parser.add_argument('-e', '--e_len', metavar='N', type=int, help='a number')d
     parser.add_argument('--model_path', type=str, default=None, help='path to model')
     parser.add_argument('--model_name', type=str, default="tinyllama", help='name of model')
     parser.add_argument('--model_name_suffix', type=str, default="tinyllama", help='name of model')
@@ -650,7 +650,7 @@ if __name__ == "__main__":
     parser.add_argument('--mask_topk', type=int, default=30, help='mask topk heads, input a negative value to mask random heads')
     parser.add_argument("--data-dir", type=str, default="/home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/data_dir")
     parser.add_argument("--max-prompt-length", type=int, default=512)
-    parser.add_argument('--max-length', type=int, default=2048,
+    parser.add_argument('--max-length', type=int, default=1024,
                        help='max length of input')
     parser.add_argument("--model-type", type=str, default="llama") # 需要改动
     parser.add_argument('--batch-size', type=int, default=1,

@@ -39,13 +39,13 @@ class DistillDataset(Dataset):
         path = os.path.join(self.args.data_dir, f"{self.split}.jsonl")
 
         if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
+            with open(path) as f:
                 raw_data = [json.loads(l) for l in f.readlines()]
                 self.answers = [x["output"] if isinstance(x["output"], list) else [x["output"]] for x in raw_data]
             
-            # ("Processing dataset for student model (and all teacher models)...")  
-            seg = np.iinfo(np.int32).max * 2 + 1     #     
-            for data in tqdm(raw_data): # , disable=(dist.get_rank() != 0)
+            print("Processing dataset for student model (and all teacher models)...")  
+            seg = np.iinfo(np.int32).max * 2 + 1        
+            for data in tqdm(raw_data):
                 student_prompt_ids = self.student_tokenizer.encode(
                     data["prompt"], add_special_tokens=False
                 )
@@ -55,11 +55,8 @@ class DistillDataset(Dataset):
                 )
                 student_response_ids = student_response_ids \
                                      + [self.student_tokenizer.eos_token_id]
-                token_weight = data.get("token_weight", None)
                 tokenized_data = {
                     "student_input_ids": student_prompt_ids + [seg] + student_response_ids,
-                    "token_weight": token_weight, # 每个数据条目对应一个token_weight列表 表示输入token的权重
-                    "prompt": data["prompt"],
                 }
         
                 for model_type in self.teacher_tokenizers:
@@ -76,7 +73,9 @@ class DistillDataset(Dataset):
                                             + [self.teacher_tokenizers[model_type].eos_token_id]
                     tokenized_data[f"teacher_{model_type}_input_ids"] = \
                         teacher_prompt_ids + [seg] + teacher_response_ids
-
+                tokenized_data["prompt"] = data.get("prompt","")      # 获取三个需要训练获取的东西
+                tokenized_data["output"] = data.get("output", "")
+                tokenized_data["text"] = data.get("text", "") 
                 dataset.append(tokenized_data)
             return dataset
         else:
@@ -97,16 +96,16 @@ class DistillDataset(Dataset):
         input_len = len(input_ids)
         model_data["input_ids"][i][:input_len-1] = torch.tensor(input_ids[:-1], dtype=torch.long)
         model_data["attention_mask"][i][:input_len-1] = 1.0
-        model_data["prompt"][i] = samp["prompt"]
         if self.args.model_type in ["gpt2"]:
             model_data["position_ids"][i][:input_len-1] = torch.arange(0, input_len-1, dtype=torch.long)
+        model_data["prompt"][i]=(samp["prompt"])
+        model_data["output"][i]=(samp["output"])
+        model_data["text"][i]=(samp["text"])
+        # model_data["input_length"][i]=int(source_len)
         no_model_data["label"][i][:input_len-1] = torch.tensor(input_ids[1:], dtype=torch.long)
         no_model_data["label"][i][:source_len-1] = -100
         no_model_data["loss_mask"][i][:input_len-1] = 1.0
         no_model_data["loss_mask"][i][:source_len-1] = 0
-        # no_model_data["token_weight"][i] = torch.tensor(  # 每个数据条目对应一个token_weight列表 表示输入token的权重
-        #     samp["token_weight"], dtype=torch.float
-        # )
         
         gen_data["input_ids"][i][-len(prompt):] = torch.tensor(prompt, dtype=torch.long)
         gen_data["attention_mask"][i][-len(prompt):] = 1.0
@@ -148,7 +147,9 @@ class DistillDataset(Dataset):
             "input_ids": torch.ones(bs, max_length, dtype=torch.long) \
                         * self.student_tokenizer.eos_token_id,
             "attention_mask": torch.zeros(bs, max_length),
-            "prompt":[""]*bs
+            "prompt":[None]*len(samples),
+            "output": [None]*len(samples),
+            "text": [None]*len(samples) # 存储文本内容
         }
         
         if self.args.model_type in ["gpt2"]:
@@ -156,8 +157,7 @@ class DistillDataset(Dataset):
             
         no_model_data = {
             "label": torch.ones(bs, max_length, dtype=torch.long) * -100,
-            "loss_mask": torch.zeros(bs, max_length),
-            "token_weight": torch.zeros(bs, max_length),
+            "loss_mask": torch.zeros(bs, max_length)
         }
         
         gen_data = {
@@ -201,4 +201,4 @@ class DistillDataset(Dataset):
             for key in teacher_no_model_data[model_type]:
                 no_model_data[f"{prefix}{key}"] = teacher_no_model_data[model_type][key]
         
-        return model_data, no_model_data, gen_data
+        return model_data, no_model_data,gen_data
