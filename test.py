@@ -44,7 +44,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_provider', type=str, default="LLaMA", help='which model to use')
     parser.add_argument('--api_key', type=str, default="", help='OpenAI API Key')
     parser.add_argument('--mask_topk', type=int, default=0, help='mask topk heads, input a negative value to mask random heads')
-    parser.add_argument("--data-dir", type=str, default="D:\project\Project\Python\Deep_learning\\buaa_projects\Retrieval_Head\data_dir")
+    parser.add_argument("--data-dir", type=str, default="D:\project\Project\Python\Deep_learning\\buaa_projects\\retravel_head\data_dir")
     parser.add_argument("--max-prompt-length", type=int, default=512)
     parser.add_argument('--max-length', type=int, default=1024, # 文本长度的最大值 会pad到这个值
                        help='max length of input')
@@ -89,7 +89,7 @@ if __name__ == "__main__":
                     break
                 # 取batch和停止
                 for batch in global_batch: # 前线传播
-                    input_data=batch["input_batch"]
+                    input_data=batch["input_batch"]["prompt"]
                     print(input_data)
                     # model = AutoModelForCausalLM.from_pretrained("D:\project\Project\Python\Deep_learning\\buaa_projects\Retrieval_Head\model")
                     # # logits = model(**input_data).logits

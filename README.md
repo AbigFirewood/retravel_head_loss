@@ -18,6 +18,9 @@ A Single 80G GPU is enough to detect up to 50K length.
 ```python
 python retrieval_head_detection.py  --model_path $path_to_model --s 0 --e 50000
 ```
+python retrieval_head_detection.py  --model_path /data/Qwen2.5-7B-Instruct --s 0 --e 50000
+projects/retravel_head
+
 We find that only few samples can stablely detect some of the strongest retrieval heads. I if you are in a hurry or no fancy large GPUs avalible, you can just set  '--e' to a lower value, e.g.
 ```python
 python retrieval_head_detection.py  --model_path $path_to_model --s 0 --e 5000

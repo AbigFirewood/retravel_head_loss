@@ -40,19 +40,20 @@ import json
 from transformers import AutoTokenizer, AutoConfig
 import sys
 import random
-sys.path.append("./faiss_attn/")
+# sys.path.append("./faiss_attn/")
 from source.modeling_llama import LlamaForCausalLM, LlamaConfig
 from source.modeling_qwen2 import Qwen2ForCausalLM
 from source.modeling_mixtral import MixtralForCausalLM
 from source.modeling_mistral import MistralForCausalLM
+from tqdm import tqdm
 # from source.modeling_phi3 import Phi3ForCausalLM
 
 import numpy as np
 import argparse
-# from rouge_score import rouge_scorer
+from rouge_score import rouge_scorer
 from data_utils.distill_datasets import DistillDataset
 from torch.utils.data import DataLoader
-# scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
+scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
 
 #from openai import OpenAI
 from datetime import datetime, timezone
@@ -194,25 +195,26 @@ class LLMNeedleHaystackTester:
             #         )
             else:
                 self.model_to_test = LlamaForCausalLM.from_pretrained(model_name,
-                    ).eval() # , torch_dtype=torch.bfloat16,device_map='auto' use_flash_attention_2="flash_attention_2"
+                    use_flash_attention_2="flash_attention_2", torch_dtype=torch.bfloat16,device_map='auto').eval()
             if 'llama-2-7b-80k' in self.model_version:
                 scaling_factor = 10
                 reset_rope(self.model_to_test, model_max_train_len=81920, scaling_factor=scaling_factor)
-        else: 
-            self.model_to_test = OpenAI(api_key=openai_api_key)
-            if(self.model_provider == "OpenAI"):
-                self.enc = tiktoken.encoding_for_model(self.model_name)
-            elif(self.model_provider == "Anthropic"):
-                self.enc = Anthropic().get_tokenizer()
+        # else: 
+            # self.model_to_test = OpenAI(api_key=openai_api_key)
+            # if(self.model_provider == "OpenAI"):
+            #     self.enc = tiktoken.encoding_for_model(self.model_name)
+            # elif(self.model_provider == "Anthropic"):
+            #     self.enc = Anthropic().get_tokenizer()
 
         self.model_to_test_description = model_name
-        
+        # print(model_name)
         self.evaluation_model = None
         if "CUDA_VISIBLE_DEVICES" in os.environ:
             self.multi_gpus = len(os.environ["CUDA_VISIBLE_DEVICES"])>1
         else:
             self.multi_gpus = True
         model_name = model_name.split('/')[-1]
+        # print(model_name)
         if self.mask_topk!=0:
             if model_name=='Mistral-7B-Instruct-v0.2':
                 model_name = "Mistral-7B-v0.2-hf"
@@ -221,6 +223,7 @@ class LLMNeedleHaystackTester:
             stable_block_list = [(l[0], np.mean(l[1])) for l in stable_block_list.items()]
             stable_block_list = sorted(stable_block_list, key=lambda x: x[1], reverse=True) 
             self.block_list = [[int(ll) for ll in l[0].split("-")] for l in stable_block_list][:100]
+            print(self.mask_topk)
             if self.mask_topk > 0:
                 print(f"masking out top {self.mask_topk} retrieval heads")
             else:
@@ -271,8 +274,7 @@ class LLMNeedleHaystackTester:
         dataset = self.prepare_dataset(args,self.enc) # 数据集加载过程 结束
         # Run through each iteration of context_lengths and depths
         self.bound_evaluate_and_log(dataset)
-        
-
+    
     def generate_prompt(self, context):
         # Generate the prompt for the Anthropic model
         # Replace the following line with the appropriate prompt structure
@@ -298,6 +300,7 @@ class LLMNeedleHaystackTester:
                 self.head_counter[f"{layer_idx}-{head_idx}"].append(retrieval_score[layer_idx][head_idx][0])
 
     def compute_cross_entropy_loss(self, logits, target, log=None):
+        self.padding_id = -100
         pad_mask = target.ne(self.padding_id)
         target = target.unsqueeze(-1)
         target = torch.where(
@@ -308,7 +311,8 @@ class LLMNeedleHaystackTester:
         logits = logits.masked_fill_(logits.isnan() | logits.isinf(), 0.0)
         lprobs = torch.log_softmax(logits, -1, dtype=torch.float32)
         nll_loss = -lprobs.gather(-1, target).squeeze(-1)
-        nll_loss = (nll_loss * pad_mask).sum()
+        loss_token = (nll_loss * pad_mask)
+        nll_loss = (nll_loss * pad_mask).sum(dim=1)
         # if self.label_smoothing > 0:
         #     eps_i = self.label_smoothing / (lprobs.shape[-1] - 1)
         #     smooth_loss = -lprobs.sum(-1)
@@ -320,7 +324,8 @@ class LLMNeedleHaystackTester:
         if log is not None:
             log["nll_loss"] = nll_loss
         
-        return loss # 启动标签平滑
+        return loss,loss_token # 启动标签平滑
+
 
     def compute_token_accuracy(self, logits, target):
         pad_mask = target.ne(self.padding_id)
@@ -370,37 +375,11 @@ class LLMNeedleHaystackTester:
     #     return logging_output
 
     def loss(self, inp, output_data=None,block_list=None):
-        # output, retrieval_score = [], [[[0, ''] for _ in range(32)] for _ in range(32)]
-        # past_kv = q_outputs.past_key_values
-        # for step_i in range(decode_len):
-        # inp = inp.view(1, 1)
         outputs = self.model_to_test(input_ids=inp, use_cache=False, \
                  output_attentions=False, block_list=block_list)
-        # past_kv = outputs.past_key_values
-        #  拿到logits 直接算loss 不解码
         logits = outputs.logits
-        loss = self.compute_cross_entropy_loss(logits, output_data["label"]) # 平滑和非平滑
-        # accuracy = self.compute_token_accuracy(
-        #     logits, 
-        #     output_data["label"], 
-        # )
-        # logging_output = self.record_logging_output(
-        #     logging_output, 
-        #     batch_denom,
-        #     {
-        #         "loss": loss,
-        #         "nll_loss": nll_loss,
-        #         "accuracy": accuracy
-        #     }
-        # )
-        return loss
-    
-            # inp = outputs.logits[0, -1].argmax()
-            # step_token = self.enc.convert_ids_to_tokens(inp.item())
-            # output.append(inp.item())
-            # #self.retrieval_calculate(outputs.attentions, retrieval_score, inp, step_token)
-            # if step_token=='<0x0A>' or inp.item()==144: break
-        # return output, retrieval_score 
+        loss,loss_token = self.compute_cross_entropy_loss(logits, output_data["label"]) # 平滑和非平滑
+        return loss,loss_token
 
     def find_needle_idx(self, needle):
         needle_ids = self.enc(needle, add_special_tokens=False)["input_ids"]
@@ -428,6 +407,7 @@ class LLMNeedleHaystackTester:
     def evaluate_and_log(self,dataset):
         # 加载掩蔽模型
         if self.mask_topk > 0:
+            print(self.mask_topk)
             block_list = self.block_list[:self.mask_topk]
             # save_name = f"{self.model_version}_block_top{self.mask_topk}"
         elif self.mask_topk == 0:
@@ -452,56 +432,60 @@ class LLMNeedleHaystackTester:
         # 控制停止
         end_epoch = False
         train_iter = iter(train_dataloader) # 创建数据迭代器
-        while True:
-            global_batch = []
-            global_st_time = time.time()
-            # for i in range(args.gradient_accumulation_steps):
-            try:
+        all_output = []
+        with tqdm(total=len(train_dataloader), desc="Testing") as pbar:
+            while True:
+                global_batch = []
+                try:
                     (input_batch, output_batch, _) = next(train_iter)
                     dataset["train"].move_to_device(
-                        [input_batch, output_batch], self.model_to_test.device)
+                    [input_batch, output_batch], self.model_to_test.device)
                     global_batch.append({
-                        "input_batch": input_batch,
-                        "output_batch": output_batch,
+                            "input_batch": input_batch,
+                            "output_batch": output_batch,
                     })
-            except StopIteration:
-                    end_epoch = True
+                except StopIteration:
+                        end_epoch = True
+                        break
+                if end_epoch:
                     break
-            if end_epoch:
-                break
-            # 取batch和停止
-            all_output = []
-            for batch in global_batch: # 前线传播
-                with torch.no_grad():
-                    input_data=batch["input_batch"]["input_ids"]
-                    output_data = batch["output_batch"]
-                    prompt = batch["input_batch"]["prompt"] # 答案
-                    # 不能缓存 也可以缓存 这个问问吧
-                    # q_outputs = self.model_to_test(input_ids=input_data[:,:-1], use_cache=True, return_dict=True)
-                    # loss计算 
-                    loss_vanilla = self.loss(input_data,output_data=output_data, block_list=None)
-                    loss_block = self.loss(input_data,output_data=output_data, block_list=block_list)
-                    # loss差值 去除维度 编程列表
-                    loss_dif_list = (loss_block- loss_vanilla).squeeze(-1).tolist()
-                    # 组合为元祖
-                    combined_list = list(zip(prompt, loss_dif_list))
-                    # # 从大到小排序
-                    # sorted_list = sorted(combined_list, key=lambda x: x[1], reverse=True)
-                    all_output.extend(combined_list)
-            # 完成循环 标注所有数据 排序
-            sorted_list = sorted(all_output, key=lambda x: x[1], reverse=True)
-            # 存储到jsonl中
-            json_ready_data = [
-                {"data": item[0], "loss_diff": item[1]}
+                # tqdm更新
+                pbar.update(1)
+                # 取batch和停止
+                for batch in global_batch: # 前线传播
+                    with torch.no_grad():
+                        input_data=batch["input_batch"] # 输入数据
+                        input_ids = batch["input_batch"]["input_ids"]
+                        # print(input_ids[:,-1].shape)
+                        output_data = batch["output_batch"]
+                        prompt = batch["input_batch"]["prompt"] # 答案
+                        output = batch["input_batch"]["output"] # 目标
+                        souse_len = batch["input_batch"]["input_length"] # 输入长度
+                        loss_vanilla,token_loss_vanilla = self.loss(input_ids,output_data=output_data, block_list=None)
+                        loss_block,token_loss_block = self.loss(input_ids,output_data=output_data, block_list=block_list)
+                        # loss差值 转化为列表 与原有列表组合
+                        loss_dif_list = ((loss_block- loss_vanilla)/loss_vanilla)
+                        loss_dif_list = torch.nan_to_num(loss_dif_list, nan=0.0).tolist()
+                        token_loss_dif = ((token_loss_block - token_loss_vanilla)/token_loss_vanilla)
+                        token_loss_dif = torch.nan_to_num(token_loss_dif, nan=0.0).tolist()
+                        # 组合为元祖
+                        combined_list = list(zip(prompt, loss_dif_list,token_loss_dif,input_ids.tolist(),output,souse_len))
+                        # # 从大到小排序
+                        # sorted_list = sorted(combined_list, key=lambda x: x[1], reverse=True)
+                        all_output.extend(combined_list)
+        # 完成循环 标注所有数据 排序
+        sorted_list = sorted(all_output, key=lambda x: x[1], reverse=True)
+        # 存储到jsonl中
+        json_ready_data = [
+                {"data": item[0], "loss_diff": item[1],"token_loss_diff": item[2], "input_ids": item[3], "output": item[4],"souse_len": item[5]}
                 for item in sorted_list
             ]
-            file_dir = ""
-            os.makedirs(os.path.dirname(file_dir), exist_ok=True)
-            with open(file_dir, "w", encoding="utf-8") as f:
-                for entry in json_ready_data:
+        file_dir = "huwenp/emb/revis_emb/Retrieval_Head/resoltdir/test.jsonl"
+        os.makedirs(os.path.dirname(file_dir), exist_ok=True)
+        with open(file_dir, "w", encoding="utf-8") as f:
+            for entry in json_ready_data:
                     f.write(json.dumps(entry) + "\n")
             
-
     def result_exists(self, context_length, depth_percent):
         """
         Checks to see if a result has already been evaluated or not
@@ -647,8 +631,8 @@ class LLMNeedleHaystackTester:
         print ("\n\n")
 
     def start_test(self, args):
-        if self.print_ongoing_status:
-            self.print_start_test_summary()
+        # if self.print_ongoing_status:
+        #     self.print_start_test_summary()
         #asyncio.run(self.run_test())
         self.run_test(args)
 
@@ -658,15 +642,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # parser.add_argument('-s', '--s_len', metavar='N', type=int, help='a number')
     # parser.add_argument('-e', '--e_len', metavar='N', type=int, help='a number')
-    parser.add_argument('--model_path', type=str, default="D:\project\Project\Python\Deep_learning\\buaa_projects\Retrieval_Head\model", help='path to model')
-    parser.add_argument('--model_name', type=str, default=None, help='name of model')
-    parser.add_argument('--model_name_suffix', type=str, default=None, help='name of model')
+    parser.add_argument('--model_path', type=str, default=None, help='path to model')
+    parser.add_argument('--model_name', type=str, default="tinyllama", help='name of model')
+    parser.add_argument('--model_name_suffix', type=str, default="tinyllama", help='name of model')
     parser.add_argument('--model_provider', type=str, default="LLaMA", help='which model to use')
     parser.add_argument('--api_key', type=str, default="", help='OpenAI API Key')
-    parser.add_argument('--mask_topk', type=int, default=0, help='mask topk heads, input a negative value to mask random heads')
-    parser.add_argument("--data-dir", type=str, default="D:\project\Project\Python\Deep_learning\\buaa_projects\Retrieval_Head\data_dir")
+    parser.add_argument('--mask_topk', type=int, default=30, help='mask topk heads, input a negative value to mask random heads')
+    parser.add_argument("--data-dir", type=str, default="/home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/data_dir")
     parser.add_argument("--max-prompt-length", type=int, default=512)
-    parser.add_argument('--max-length', type=int, default=1024,
+    parser.add_argument('--max-length', type=int, default=2048,
                        help='max length of input')
     parser.add_argument("--model-type", type=str, default="llama") # 需要改动
     parser.add_argument('--batch-size', type=int, default=1,
@@ -677,9 +661,10 @@ if __name__ == "__main__":
     # parser = add_args(parser)
 
     args = parser.parse_args()
+    print(args)
 
     if(args.model_path is not None):
-        assert(args.model_name is None)
+        # assert(args.model_name is None)
         model_name = args.model_path
     else: 
         assert(args.model_name is not None)

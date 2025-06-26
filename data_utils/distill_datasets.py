@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 import torch.distributed as dist
 from tqdm import tqdm
 
-from utils import log_rank
+# from utils import log_rank
 from typing import Dict, Optional
 from transformers import AutoTokenizer
 
@@ -26,7 +26,7 @@ class DistillDataset(Dataset):
         self.max_length = args.max_length
         self.max_prompt_length = args.max_prompt_length
         self.dataset = self._load_and_process_data()
-        log_rank(f"Num of data instances: {len(self.dataset)}")
+        # log_rank(f"Num of data instances: {len(self.dataset)}")
 
     def __len__(self):
         return len(self.dataset)
@@ -43,9 +43,9 @@ class DistillDataset(Dataset):
                 raw_data = [json.loads(l) for l in f.readlines()]
                 self.answers = [x["output"] if isinstance(x["output"], list) else [x["output"]] for x in raw_data]
             
-            log_rank("Processing dataset for student model (and all teacher models)...")  
+            # ("Processing dataset for student model (and all teacher models)...")  
             seg = np.iinfo(np.int32).max * 2 + 1     #     
-            for data in tqdm(raw_data, disable=(dist.get_rank() != 0)):
+            for data in tqdm(raw_data): # , disable=(dist.get_rank() != 0)
                 student_prompt_ids = self.student_tokenizer.encode(
                     data["prompt"], add_special_tokens=False
                 )
@@ -59,6 +59,7 @@ class DistillDataset(Dataset):
                 tokenized_data = {
                     "student_input_ids": student_prompt_ids + [seg] + student_response_ids,
                     "token_weight": token_weight, # 每个数据条目对应一个token_weight列表 表示输入token的权重
+                    "prompt": data["prompt"],
                 }
         
                 for model_type in self.teacher_tokenizers:
@@ -96,15 +97,16 @@ class DistillDataset(Dataset):
         input_len = len(input_ids)
         model_data["input_ids"][i][:input_len-1] = torch.tensor(input_ids[:-1], dtype=torch.long)
         model_data["attention_mask"][i][:input_len-1] = 1.0
+        model_data["prompt"][i] = samp["prompt"]
         if self.args.model_type in ["gpt2"]:
             model_data["position_ids"][i][:input_len-1] = torch.arange(0, input_len-1, dtype=torch.long)
         no_model_data["label"][i][:input_len-1] = torch.tensor(input_ids[1:], dtype=torch.long)
         no_model_data["label"][i][:source_len-1] = -100
         no_model_data["loss_mask"][i][:input_len-1] = 1.0
         no_model_data["loss_mask"][i][:source_len-1] = 0
-        no_model_data["token_weight"][i] = torch.tensor(  # 每个数据条目对应一个token_weight列表 表示输入token的权重
-            samp["token_weight"], dtype=torch.float
-        )
+        # no_model_data["token_weight"][i] = torch.tensor(  # 每个数据条目对应一个token_weight列表 表示输入token的权重
+        #     samp["token_weight"], dtype=torch.float
+        # )
         
         gen_data["input_ids"][i][-len(prompt):] = torch.tensor(prompt, dtype=torch.long)
         gen_data["attention_mask"][i][-len(prompt):] = 1.0
@@ -146,6 +148,7 @@ class DistillDataset(Dataset):
             "input_ids": torch.ones(bs, max_length, dtype=torch.long) \
                         * self.student_tokenizer.eos_token_id,
             "attention_mask": torch.zeros(bs, max_length),
+            "prompt":[""]*bs
         }
         
         if self.args.model_type in ["gpt2"]:
