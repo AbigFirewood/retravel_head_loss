@@ -476,15 +476,14 @@ class LLMNeedleHaystackTester:
                         token_loss_dif = torch.nan_to_num(token_loss_dif, nan=0.0).tolist()
                         # 组合为元祖
                         combined_list = list(zip(prompt,output,text, loss_dif_list,token_loss_dif,output["loss_mask"]))
-                        # # 从大到小排序
-                        # sorted_list = sorted(combined_list, key=lambda x: x[1], reverse=True)
+
                         all_output.extend(combined_list)
 
         # 完成循环 标注所有数据 排序
-        sorted_list = sorted(all_output, key=lambda x: x[1], reverse=True)
+        sorted_list = sorted(all_output, key=lambda x: x[3], reverse=True)
         # 存储到jsonl中
         json_ready_data = [
-                {"data": item[0],"output": item[1],"text": item[2], "loss_diff": item[3],"token_loss_diff": item[4], "loss_mask": item[5]} for item in sorted_list
+                {"prompt": item[0],"output": item[1],"text": item[2], "loss_diff": item[3],"token_loss_diff": item[4], "loss_mask": item[5]} for item in sorted_list
             ]
         os.makedirs(os.path.dirname(file_dir), exist_ok=True)
         with open(file_dir, "w", encoding="utf-8") as f:
