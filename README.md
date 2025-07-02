@@ -77,4 +77,24 @@ Replace 'model_name' in './viz/CreateVizFromLLMTesting.ipynb' by the folder name
 
 
 # 使用方法
+## 为数据集打分
+```bash
+python kd_loss_test_with_mask.py --mask_top 30 --model_path /data/model/TinyLlama-1.1B-3T --model_name tinyllama  --data-dir /home/pkuccadm/huwenp/emb/revis_emb/DSKD/data/dolly --max-prompt-length 512 --max-length 1024; 
+```
+--mask_top 表示掩盖的head数量 
+data_dir指的是需要处理的数据路径和保存的数据路径 
+结果会保存在该路径下的train_weight.jsonl中
+-max-prompt-length 会截断数据集的输入prompt部分
+--max-length 1024; 表示数据全部长度 会pad或者截断到这个长度
+## 生成token_weight
+```bash
+python process_data_with_weight.py --input_path /home/pkuccadm/huwenp/emb/revis_emb/DSKD/data/dolly/train_weight.jsonl --output_path /home/pkuccadm/huwenp/emb/revis_emb/DSKD/data/dolly/train.jsonl;
+```
+--input_path 指的是打分后的数据路径
+--output_path 指的是处理后的数据路径
+
+
+
+
+
 
