@@ -33,6 +33,18 @@ python -u needle_in_haystack.py --s_len 0 --e_len 128000\
 ) 2>&1  | tee logs/eval_llama-2-7b-80k.log
 """
 
+
+# CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0,1,2,3 python /home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/kd_loss_test_with_mask.py --mask_top 30 --model_path /data/model/TinyLlama-1.1B-3T --model_name tinyllama   
+
+
+# CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=1,2,3,4,5 python /home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/kd_loss_test_with_mask.py --mask_top 30 --model_path /home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/Qwen2.5-7B-Instruct --model_name Qwen2.5-7B-Instruct --data-dir /home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/data_dir   --max-length 30000 --max-prompt-length 1500 --model_name_suffix Qwen2.5 --model_provider Qwen
+
+# CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0,1,2,3 python /home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/kd_loss_test_with_mask.py --mask_top 30 --model_path /data/model/TinyLlama-1.1B-3T --model_name tinyllama --data-dir /home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/data_dir   --max-length 50000 --max-prompt-length 1500
+
+
+# huggingface-cli download --resume-download  Qwen/Qwen2.5-7B-Instruct --local-dir /home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/model 
+
+
 #import tiktoken
 import os 
 import glob
@@ -62,6 +74,7 @@ import time
 import torch
 
 file_dir = "huwenp/emb/revis_emb/Retrieval_Head/resoltdir/test_sort.jsonl"
+
 def reset_rope(model, model_max_train_len, scaling_factor):
     for l in model.model.layers:
         l.self_attn.rotary_emb.scaling_factor = scaling_factor
