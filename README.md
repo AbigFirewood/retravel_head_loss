@@ -73,3 +73,8 @@ Replace 'model_name' in './viz/CreateVizFromLLMTesting.ipynb' by the folder name
 ![alt text](viz/top30.png)
 **Mask random 30 non-Retrieval Head for Llama-2-7b-80K**:
 ![alt text](viz/random.png)
+
+
+
+# 使用方法
+
