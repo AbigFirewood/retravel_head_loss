@@ -220,7 +220,7 @@ class LLMNeedleHaystackTester:
         if self.mask_topk!=0:
             if model_name=='Mistral-7B-Instruct-v0.2':
                 model_name = "Mistral-7B-v0.2-hf"
-            with open(f"/home/pkuccadm/huwenp/emb/revis_emb/Retrieval_Head/head_score/{model_name}.json", "r") as file:
+            with open(f"head_score/{model_name}.json", "r") as file:
                 stable_block_list =  json.loads(file.readline())
             stable_block_list = [(l[0], np.mean(l[1])) for l in stable_block_list.items()]
             stable_block_list = sorted(stable_block_list, key=lambda x: x[1], reverse=True) 
